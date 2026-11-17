@@ -202,10 +202,10 @@ def infection_by_genotype(description):
 
 def confidence_analysis(description):
 
-    print("\n[6/7] Confidence level analysis...")
+    print("\n[6/7] Confidence analysis...")
 
     counts = description[
-        "Confidence_Level"
+        "Confidence"
     ].value_counts().sort_index()
 
     print(counts)
@@ -217,8 +217,8 @@ def confidence_analysis(description):
         y=counts.values
     )
 
-    plt.title("Infection Confidence Level")
-    plt.xlabel("Confidence Level")
+    plt.title("Infection Confidence")
+    plt.xlabel("Confidence")
     plt.ylabel("Number of Leaf Samples")
 
     plt.tight_layout()
