@@ -1,95 +1,131 @@
 
 import pandas as pd
+import numpy as np
 from pathlib import Path
+
 
 # ==========================================
 # 1. PROJECT PATHS
 # ==========================================
 
-ROOT = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-RAW_DIR = ROOT / "data" / "raw"
-PROCESSED_DIR = ROOT / "data" / "processed"
+RAW_DIR = BASE_DIR / "data" / "raw"
+PROCESSED_DIR = BASE_DIR / "data" / "processed"
 
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-VNIR_PATH = RAW_DIR / "VNIR_data.csv"
-SWIR_PATH = RAW_DIR / "SWIR_data.csv"
-DESCRIPTION_PATH = RAW_DIR / "Data_description.csv"
-
 
 # ==========================================
-# 2. LOAD AND CLEAN VNIR / SWIR
+# 2. LOAD AND CLEAN SPECTRAL DATA
 # ==========================================
-
 
 def load_spectral_dataset(file_path, dataset_name):
 
     print(f"\nLoading {dataset_name} dataset...")
 
     if not file_path.exists():
-        raise FileNotFoundError(file_path)
+        raise FileNotFoundError(
+            f"Dataset not found: {file_path}"
+        )
 
-    # Read the original CSV
     raw = pd.read_csv(
         file_path,
         sep=";",
         header=None,
-        skiprows=1,
+        skiprows=2,
         encoding="cp1252"
     )
 
-    # First row contains date information
-    date_row = raw.iloc[0]
+    # First header row contains dates
+    date_row = raw.iloc[0].ffill()
 
-    # Second row contains G/D labels
+    # Second header row contains G and D
     side_row = raw.iloc[1]
 
-    columns = ["Pot", "Genotype", "Treatment"]
+    columns = [
+        "Pot",
+        "Genotype",
+        "Treatment"
+    ]
 
-    # Create measurement column names
+    # Generate measurement column names
     for i in range(3, len(raw.columns)):
 
-        date = date_row.iloc[i]
-        side = str(side_row.iloc[i]).strip()
+        date_value = pd.to_numeric(
+            date_row.iloc[i],
+            errors="coerce"
+        )
 
-        if pd.isna(date):
-            date = date_row.iloc[i - 1]
-
-        if pd.isna(date):
+        if pd.notna(date_value):
+            date = str(int(date_value))
+        else:
             date = "unknown"
 
-        if side not in ["G", "D"]:
-            side = f"side_{i}"
+        side_value = str(
+            side_row.iloc[i]
+        ).strip()
 
-        columns.append(f"dpi_{date}_{side}")
+        if side_value.startswith("G"):
+            side = "G"
 
-    # Extract records after both header rows
+        elif side_value.startswith("D"):
+            side = "D"
+
+        else:
+            side = "Unknown"
+
+        columns.append(
+            f"dpi_{date}_{side}"
+        )
+
+    # Extract actual records
     data = raw.iloc[2:].copy()
 
     data.columns = columns
 
-    # Remove explanatory rows and completely empty rows
+    # Keep valid pot records only
     data = data[
-        data["Pot"].astype(str).str.strip().str.fullmatch(r"\d+")
+        data["Pot"]
+        .astype(str)
+        .str.strip()
+        .str.fullmatch(r"\d+")
     ].copy()
 
-    # Clean text columns
-    for col in ["Pot", "Genotype", "Treatment"]:
-        data[col] = data[col].astype("string").str.strip()
+    # Clean metadata
+    data["Pot"] = pd.to_numeric(
+        data["Pot"],
+        errors="coerce"
+    )
 
-    # Convert measurement columns
-    measurement_columns = columns[3:]
+    for col in ["Genotype", "Treatment"]:
 
-    for col in measurement_columns:
-        data[col] = pd.to_numeric(data[col], errors="coerce")
+        data[col] = (
+            data[col]
+            .astype("string")
+            .str.strip()
+        )
 
-    return data.reset_index(drop=True)
+    # Convert measurement columns to numeric
+    for col in columns[3:]:
 
+        data[col] = pd.to_numeric(
+            data[col],
+            errors="coerce"
+        )
+
+    data = data.reset_index(drop=True)
+
+    print(f"{dataset_name} shape: {data.shape}")
+
+    print("Columns:")
+    print(data.columns.tolist())
+
+    return data
 
 
 # ==========================================
-# 3. LOAD DESCRIPTION DATASET
+# 3. LOAD AND CLEAN DESCRIPTION DATA
 # ==========================================
 
 def load_description_dataset(file_path):
@@ -97,28 +133,31 @@ def load_description_dataset(file_path):
     print("\nLoading description dataset...")
 
     if not file_path.exists():
-        raise FileNotFoundError(file_path)
+        raise FileNotFoundError(
+            f"Dataset not found: {file_path}"
+        )
 
     data = pd.read_csv(
         file_path,
         sep=";",
-        skiprows=2,
+        header=2,
         encoding="cp1252"
     )
 
-    # Keep only the six actual data columns.
+    # Remove unnecessary columns
     data = data.iloc[:, :6].copy()
 
+    # Standardize column names
     data.columns = [
         "Pot",
         "Side",
         "Leaf",
         "Genotype",
         "Treatment",
-        "Confidence_Level"
+        "Confidence"
     ]
 
-    # Remove blank and explanatory rows.
+    # Remove invalid records
     data = data.dropna(
         subset=[
             "Pot",
@@ -127,126 +166,188 @@ def load_description_dataset(file_path):
             "Genotype",
             "Treatment"
         ]
-    ).copy()
-
-    # Clean text values.
-    for col in ["Side", "Genotype", "Treatment"]:
-        data[col] = data[col].astype("string").str.strip()
-
-    # Convert numeric columns.
-    data["Pot"] = pd.to_numeric(data["Pot"], errors="coerce")
-    data["Leaf"] = pd.to_numeric(data["Leaf"], errors="coerce")
-    data["Confidence_Level"] = pd.to_numeric(
-        data["Confidence_Level"], errors="coerce"
     )
+
+    # Clean text columns
+    for col in [
+        "Side",
+        "Genotype",
+        "Treatment"
+    ]:
+
+        data[col] = (
+            data[col]
+            .astype("string")
+            .str.strip()
+        )
+
+    # Convert numeric columns
+    for col in [
+        "Pot",
+        "Leaf",
+        "Confidence"
+    ]:
+
+        data[col] = pd.to_numeric(
+            data[col],
+            errors="coerce"
+        )
 
     data = data.dropna(
-        subset=["Pot", "Leaf", "Confidence_Level"]
+        subset=[
+            "Pot",
+            "Leaf",
+            "Confidence"
+        ]
     )
 
-    data["Pot"] = data["Pot"].astype(int)
-    data["Leaf"] = data["Leaf"].astype(int)
-    data["Confidence_Level"] = data["Confidence_Level"].astype(int)
+    data = data.reset_index(drop=True)
 
-    return data.reset_index(drop=True)
+    print("Description shape:", data.shape)
+
+    print("Description columns:")
+    print(data.columns.tolist())
+
+    return data
 
 
 # ==========================================
-# 4. DATASET ANALYSIS
+# 4. BASIC DATASET ANALYSIS
 # ==========================================
 
-def analyze_dataset(data, name):
+def analyze_dataset(data, dataset_name):
 
-    print("\n" + "=" * 55)
-    print(f"{name} DATASET ANALYSIS")
-    print("=" * 55)
-
-    print("\nFirst five rows:")
-    print(data.head())
+    print(f"\n{'=' * 45}")
+    print(f"{dataset_name} DATASET ANALYSIS")
+    print(f"{'=' * 45}")
 
     print("\nDataset shape:")
     print(data.shape)
 
-    print("\nColumn names:")
-    print(data.columns.tolist())
+    print("\nDataset information:")
+    print(data.info())
 
-    print("\nData types:")
-    print(data.dtypes)
+    print("\nFirst five records:")
+    print(data.head())
 
     print("\nMissing values:")
     print(data.isnull().sum())
 
-    print("\nTotal missing values:")
-    print(data.isnull().sum().sum())
-
-    print("\nDuplicate rows:")
+    print("\nDuplicate records:")
     print(data.duplicated().sum())
 
+    print("\nStatistical summary:")
+    print(data.describe(include="all"))
+
 
 # ==========================================
-# 5. LABEL DISTRIBUTION
+# 5. LABEL ANALYSIS
 # ==========================================
 
-def analyze_labels(data, name):
+def analyze_labels(data):
 
-    print(f"\n{name} Treatment Distribution:")
+    print("\n========== LABEL ANALYSIS ==========")
 
+    print("\nTreatment distribution:")
     print(data["Treatment"].value_counts())
 
-    print(f"\n{name} Genotype Distribution:")
-
+    print("\nGenotype distribution:")
     print(data["Genotype"].value_counts())
+
+    print("\nConfidence distribution:")
+    print(data["Confidence"].value_counts())
+
+    print("\nTreatment by genotype:")
+    print(
+        pd.crosstab(
+            data["Genotype"],
+            data["Treatment"]
+        )
+    )
 
 
 # ==========================================
 # 6. SAVE PROCESSED DATASETS
 # ==========================================
 
-def save_dataset(data, filename):
+def save_dataset(data, file_name):
 
-    output_path = PROCESSED_DIR / filename
+    output_path = PROCESSED_DIR / file_name
 
-    data.to_csv(output_path, index=False)
+    data.to_csv(
+        output_path,
+        index=False
+    )
 
-    print(f"\nSaved: {output_path}")
+    print(f"\nSaved successfully: {output_path}")
 
 
 # ==========================================
-# 7. MAIN FUNCTION
+# 7. MAIN EXECUTION
 # ==========================================
 
 def main():
 
-    # Load datasets.
-    vnir = load_spectral_dataset(VNIR_PATH, "VNIR")
-    swir = load_spectral_dataset(SWIR_PATH, "SWIR")
+    print("\n====================================")
+    print(" TERRASPECTRA DATA ANALYSIS")
+    print("====================================")
 
-    description = load_description_dataset(
-        DESCRIPTION_PATH
+    # Load VNIR dataset
+    vnir_data = load_spectral_dataset(
+        RAW_DIR / "VNIR_data.csv",
+        "VNIR"
     )
 
-    # Analyse datasets.
-    analyze_dataset(vnir, "VNIR")
-    analyze_dataset(swir, "SWIR")
-    analyze_dataset(description, "DESCRIPTION")
+    # Load SWIR dataset
+    swir_data = load_spectral_dataset(
+        RAW_DIR / "SWIR_data.csv",
+        "SWIR"
+    )
 
-    # Analyse labels.
-    analyze_labels(vnir, "VNIR")
-    analyze_labels(swir, "SWIR")
-    analyze_labels(description, "DESCRIPTION")
+    # Load description dataset
+    description_data = load_description_dataset(
+        RAW_DIR / "Data_description.csv"
+    )
 
-    # Save cleaned datasets.
-    save_dataset(vnir, "VNIR_cleaned.csv")
-    save_dataset(swir, "SWIR_cleaned.csv")
-    save_dataset(description, "Data_description_cleaned.csv")
+    # Analyze datasets
+    analyze_dataset(
+        vnir_data,
+        "VNIR"
+    )
 
-    print("\n" + "=" * 55)
-    print("TERRASPECTRA DATA PROCESSING COMPLETED")
-    print("=" * 55)
+    analyze_dataset(
+        swir_data,
+        "SWIR"
+    )
+
+    analyze_dataset(
+        description_data,
+        "DESCRIPTION"
+    )
+
+    # Analyze infection labels
+    analyze_labels(description_data)
+
+    # Save cleaned datasets
+    save_dataset(
+        vnir_data,
+        "VNIR_cleaned.csv"
+    )
+
+    save_dataset(
+        swir_data,
+        "SWIR_cleaned.csv"
+    )
+
+    save_dataset(
+        description_data,
+        "Data_description_cleaned.csv"
+    )
+
+    print("\n====================================")
+    print(" DATA CLEANING COMPLETED")
+    print("====================================")
 
 
 if __name__ == "__main__":
     main()
-
-
-
