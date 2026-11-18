@@ -47,4 +47,19 @@ def validate_swir_data():
 
 if __name__ == "__main__":
     validate_vnir_data()
-    validate_swir_data()
+    validate_swir_data()    
+    
+     === 1. VNIR Data Validation (Member 1 Task) ===
+VNIR Dataset Shape: (55, 36)
+Total Missing Values: 655
+Total Columns Checked: 36
+Numeric Columns: 33
+VNIR Data Validation Completed Successfully!
+
+=== 2. SWIR Data Validation (Member 1 Task) ===
+SWIR Dataset Shape: (55, 36)
+Total Missing Values: 655
+Total Columns Checked: 36
+Numeric Columns: 33
+SWIR Data Validation Completed Successfully!
+                                                                                                                                            
