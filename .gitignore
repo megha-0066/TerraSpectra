@@ -13,3 +13,6 @@ data/samples/
 
 # Temporary files
 *.log
+
+saved_models/
+saved_models/
