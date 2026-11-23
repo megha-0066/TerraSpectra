@@ -1,137 +1,209 @@
+
+import os
+import warnings
+import joblib
 import pandas as pd
 import numpy as np
-import joblib
 
-from pathlib import Path
-
-from sklearn.model_selection import StratifiedKFold, cross_validate
-from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_classif
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import StratifiedKFold, cross_validate
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    classification_report,
-    confusion_matrix
+from sklearn.metrics import make_scorer, precision_score
+
+
+# --------------------------------------------------
+# 1. PROJECT PATHS
+# --------------------------------------------------
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+DATA_PATH = os.path.join(
+    BASE_DIR,
+    "data",
+    "processed",
+    "VNIR_cleaned.csv"
 )
 
-# ==========================================
-# TERRASPECTRA BASELINE ML MODEL
-# ==========================================
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-DATA_PATH = (
-    BASE_DIR / "data" / "processed" / "VNIR_cleaned.csv"
+MODEL_DIR = os.path.join(BASE_DIR, "saved_models")
+RESULT_DIR = os.path.join(
+    BASE_DIR,
+    "data",
+    "processed",
+    "model_results"
 )
 
-MODEL_DIR = BASE_DIR / "saved_models"
-RESULT_DIR = BASE_DIR / "data" / "processed" / "model_results"
-
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
-RESULT_DIR.mkdir(parents=True, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
+os.makedirs(RESULT_DIR, exist_ok=True)
 
 
-# ==========================================
-# 1. LOAD DATASET
-# ==========================================
+# --------------------------------------------------
+# 2. LOAD DATASET
+# --------------------------------------------------
 
-def load_dataset():
+print("\nLoading VNIR dataset...")
 
-    print("\n[1/6] Loading dataset...")
+df = pd.read_csv(DATA_PATH)
 
-    data = pd.read_csv(DATA_PATH)
-
-    print("Dataset shape:", data.shape)
-
-    print("\nTreatment distribution:")
-    print(data["Treatment"].value_counts())
-
-    return data
+print("Dataset shape:", df.shape)
 
 
-# ==========================================
-# 2. PREPARE FEATURES AND TARGET
-# ==========================================
+# --------------------------------------------------
+# 3. PREPARE FEATURES AND TARGET
+# --------------------------------------------------
 
-def prepare_data(data):
+TARGET_COLUMN = "Treatment"
 
-    print("\n[2/6] Preparing features and target...")
+if TARGET_COLUMN not in df.columns:
+    raise ValueError(
+        f"Target column '{TARGET_COLUMN}' not found. "
+        f"Available columns: {list(df.columns)}"
+    )
 
-    metadata_columns = [
-        "Pot",
-        "Genotype",
-        "Treatment"
-    ]
+# Remove rows with missing target values
+df = df.dropna(subset=[TARGET_COLUMN]).copy()
 
-    X = data.drop(columns=metadata_columns)
-
-    X = X.apply(pd.to_numeric, errors="coerce")
-
-    y = data["Treatment"].map({
-        "Non-infected": 0,
-        "Infected": 1
+# Convert treatment labels into numerical values
+df[TARGET_COLUMN] = (
+    df[TARGET_COLUMN]
+    .astype(str)
+    .str.strip()
+    .str.lower()
+    .map({
+        "non-infected": 0,
+        "infected": 1
     })
+)
 
-    if y.isna().any():
-        raise ValueError("Unexpected treatment labels found.")
+# Remove rows whose treatment labels could not be mapped
+df = df.dropna(subset=[TARGET_COLUMN]).copy()
 
-    print("Number of samples:", len(X))
-    print("Number of features:", X.shape[1])
+y = df[TARGET_COLUMN].astype(int)
 
-    return X, y
+# Exclude metadata and target columns
+excluded_columns = [
+    "Pot",
+    "Genotype",
+    "Treatment"
+]
 
+X = df.drop(
+    columns=excluded_columns,
+    errors="ignore"
+)
 
-# ==========================================
-# 3. DEFINE MODELS
-# ==========================================
+# Convert all features to numeric
+X = X.apply(pd.to_numeric, errors="coerce")
 
-def create_models():
+# Remove columns containing no observed values
+# The imputer will handle missing values in remaining columns.
+X = X.dropna(axis=1, how="all")
 
-    print("\n[3/6] Creating ML models...")
+print("\nFeature matrix shape:", X.shape)
+print("Target distribution:")
+print(y.value_counts().sort_index())
 
-    models = {
-
-        "Logistic Regression": LogisticRegression(
-            max_iter=2000,
-            class_weight="balanced"
-        ),
-
-        "Random Forest": RandomForestClassifier(
-            n_estimators=200,
-            max_depth=3,
-            min_samples_leaf=2,
-            class_weight="balanced",
-            random_state=42
-        ),
-
-        "SVM": SVC(
-            kernel="linear",
-            class_weight="balanced"
-        )
-    }
-
-    return models
+print("\nClass mapping:")
+print("0 = Non-infected")
+print("1 = Infected")
 
 
-# ==========================================
-# 4. BUILD LEAKAGE-SAFE PIPELINE
-# ==========================================
+# --------------------------------------------------
+# 4. DEFINE CROSS-VALIDATION
+# --------------------------------------------------
 
-def create_pipeline(model):
+class_counts = y.value_counts()
 
-    return Pipeline([
+minimum_class_count = class_counts.min()
 
+if minimum_class_count < 2:
+    raise ValueError(
+        "At least two samples per class are required for "
+        "stratified cross-validation."
+    )
+
+n_splits = min(4, minimum_class_count)
+
+cv = StratifiedKFold(
+    n_splits=n_splits,
+    shuffle=True,
+    random_state=42
+)
+
+print(f"\nUsing {n_splits}-fold stratified cross-validation.")
+
+
+# --------------------------------------------------
+# 5. DEFINE MODELS
+# --------------------------------------------------
+
+models = {
+    "Logistic Regression": LogisticRegression(
+        max_iter=2000,
+        class_weight="balanced",
+        random_state=42
+    ),
+
+    "Random Forest": RandomForestClassifier(
+        n_estimators=200,
+        class_weight="balanced",
+        random_state=42
+    ),
+
+    "SVM": SVC(
+        kernel="rbf",
+        class_weight="balanced",
+        random_state=42
+    )
+}
+
+
+# --------------------------------------------------
+# 6. DEFINE EVALUATION METRICS
+# --------------------------------------------------
+
+scoring = {
+    "accuracy": "accuracy",
+
+    "precision": make_scorer(
+        precision_score,
+        zero_division=0
+    ),
+
+    "recall": "recall",
+
+    "f1": "f1"
+}
+
+
+# --------------------------------------------------
+# 7. MODEL TRAINING AND EVALUATION
+# --------------------------------------------------
+
+results = []
+trained_pipelines = {}
+
+print("\nStarting model evaluation...")
+
+for model_name, classifier in models.items():
+
+    print("\n" + "=" * 50)
+    print("Evaluating:", model_name)
+    print("=" * 50)
+
+    pipeline = Pipeline([
         (
             "imputer",
-            SimpleImputer(strategy="median")
+            SimpleImputer(
+                strategy="median",
+                keep_empty_features=True
+            )
         ),
 
         (
@@ -146,45 +218,19 @@ def create_pipeline(model):
 
         (
             "feature_selection",
-            SelectKBest(score_func=f_classif, k=10)
+            SelectKBest(
+                score_func=f_classif,
+                k=min(10, X.shape[1])
+            )
         ),
 
         (
             "classifier",
-            model
+            classifier
         )
-
     ])
 
-
-# ==========================================
-# 5. CROSS-VALIDATION
-# ==========================================
-
-def evaluate_models(X, y, models):
-
-    print("\n[4/6] Evaluating models using cross-validation...")
-
-    cv = StratifiedKFold(
-        n_splits=4,
-        shuffle=True,
-        random_state=42
-    )
-
-    scoring = [
-        "accuracy",
-        "precision",
-        "recall",
-        "f1"
-    ]
-
-    results = []
-
-    for name, model in models.items():
-
-        print(f"\nEvaluating {name}...")
-
-        pipeline = create_pipeline(model)
+    try:
 
         scores = cross_validate(
             pipeline,
@@ -192,105 +238,131 @@ def evaluate_models(X, y, models):
             y,
             cv=cv,
             scoring=scoring,
+            return_train_score=False,
             error_score="raise"
         )
 
-        results.append({
+        result = {
+            "Model": model_name,
 
-            "Model": name,
-
-            "Accuracy_Mean": scores["test_accuracy"].mean(),
+            "Accuracy": scores["test_accuracy"].mean(),
 
             "Accuracy_Std": scores["test_accuracy"].std(),
 
-            "Precision_Mean": scores["test_precision"].mean(),
+            "Precision": scores["test_precision"].mean(),
 
-            "Recall_Mean": scores["test_recall"].mean(),
+            "Recall": scores["test_recall"].mean(),
 
-            "F1_Mean": scores["test_f1"].mean()
+            "F1_Score": scores["test_f1"].mean()
+        }
 
-        })
+        results.append(result)
 
-    results_df = pd.DataFrame(results)
+        trained_pipelines[model_name] = pipeline
 
-    results_df.to_csv(
-        RESULT_DIR / "model_comparison.csv",
-        index=False
+        print(f"Accuracy : {result['Accuracy']:.4f}")
+        print(f"Precision: {result['Precision']:.4f}")
+        print(f"Recall   : {result['Recall']:.4f}")
+        print(f"F1-score : {result['F1_Score']:.4f}")
+
+    except Exception as error:
+
+        print(f"Error evaluating {model_name}: {error}")
+
+
+# --------------------------------------------------
+# 8. SAVE MODEL COMPARISON RESULTS
+# --------------------------------------------------
+
+if not results:
+    raise RuntimeError(
+        "No model completed evaluation successfully."
     )
 
-    print("\nCross-validation results:")
-    print(results_df.to_string(index=False))
+results_df = pd.DataFrame(results)
 
-    return results_df, cv
+results_df = results_df.sort_values(
+    by="F1_Score",
+    ascending=False
+)
 
+comparison_path = os.path.join(
+    RESULT_DIR,
+    "model_comparison.csv"
+)
 
-# ==========================================
-# 6. TRAIN FINAL EXPERIMENTAL MODEL
-# ==========================================
+results_df.to_csv(
+    comparison_path,
+    index=False
+)
 
-def train_final_model(X, y, models, results_df):
+print("\nMODEL COMPARISON")
+print(results_df.to_string(index=False))
 
-    print("\n[5/6] Training final experimental model...")
-
-    best_name = results_df.sort_values(
-        "F1_Mean",
-        ascending=False
-    ).iloc[0]["Model"]
-
-    best_model = models[best_name]
-
-    pipeline = create_pipeline(best_model)
-
-    pipeline.fit(X, y)
-
-    model_path = MODEL_DIR / "baseline_model.pkl"
-
-    joblib.dump(pipeline, model_path)
-
-    print("\nSelected model:", best_name)
-    print("Saved model:", model_path)
-
-    return pipeline, best_name
+print("\nComparison saved at:")
+print(comparison_path)
 
 
-# ==========================================
-# MAIN FUNCTION
-# ==========================================
+# --------------------------------------------------
+# 9. SELECT BEST MODEL
+# --------------------------------------------------
 
-def main():
+best_model_name = results_df.iloc[0]["Model"]
 
-    print("\n========================================")
-    print(" TERRASPECTRA BASELINE ML MODEL")
-    print("========================================")
+best_model = trained_pipelines[best_model_name]
 
-    data = load_dataset()
-
-    X, y = prepare_data(data)
-
-    models = create_models()
-
-    results_df, cv = evaluate_models(
-        X,
-        y,
-        models
-    )
-
-    pipeline, best_name = train_final_model(
-        X,
-        y,
-        models,
-        results_df
-    )
-
-    print("\n[6/6] MODEL DEVELOPMENT COMPLETED")
-
-    print("\nBest experimental model:", best_name)
-
-    print("\nResults saved in:")
-    print(RESULT_DIR)
-
-    print("\n========================================")
+print("\nBest model based on mean cross-validation F1-score:")
+print(best_model_name)
 
 
-if __name__ == "__main__":
-    main()
+# --------------------------------------------------
+# 10. TRAIN BEST MODEL ON FULL DATASET
+# --------------------------------------------------
+
+print("\nTraining selected model on all available samples...")
+
+best_model.fit(X, y)
+
+
+# --------------------------------------------------
+# 11. SAVE TRAINED MODEL
+# --------------------------------------------------
+
+model_path = os.path.join(
+    MODEL_DIR,
+    "baseline_model.pkl"
+)
+
+joblib.dump(
+    best_model,
+    model_path
+)
+
+print("\nTrained model saved successfully:")
+print(model_path)
+
+
+# --------------------------------------------------
+# 12. FINAL SUMMARY
+# --------------------------------------------------
+
+print("\n" + "=" * 50)
+print("BASELINE MODEL PIPELINE COMPLETED")
+print("=" * 50)
+
+print("Dataset samples:", len(X))
+print("Input features:", X.shape[1])
+print("Cross-validation folds:", n_splits)
+print("Best model:", best_model_name)
+
+print("\nImportant:")
+print(
+    "This is an exploratory tabular baseline using VNIR "
+    "CSV measurement counts, not a validated hyperspectral "
+    "image classification model."
+)
+
+print(
+    "The dataset is small, so the cross-validation results "
+    "should be interpreted cautiously."
+)
