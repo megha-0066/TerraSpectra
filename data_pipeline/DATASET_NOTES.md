@@ -1,40 +1,65 @@
-# TerraSpectra Dataset Documentation
+# TerraSpectra: Dataset Documentation
 
-## 1. Dataset Source
-Dataset: Early detection of septoria infection on wheat leaves using hyperspectral imaging data.
+## 1. Dataset Information
 
-Source: INRAE Research Data Repository.
+**Project:** TerraSpectra: Hyperspectral Crop Disease Forecasting
 
-## 2. Available CSV Files
+**Dataset:** Early Detection of Septoria Infection on Wheat Leaves Using Hyperspectral Imaging Data.
 
-| File | Description |
+**Source:** INRAE Research Data Repository.
+
+## 2. Dataset Files
+
+| Filename | Description |
 |---|---|
 | VNIR_data.csv | VNIR image annotation and leaf-count information |
 | SWIR_data.csv | SWIR image annotation and leaf-count information |
 | Data_description.csv | Leaf-level sample metadata |
 
-## 3. Current Dataset Status
+## 3. Dataset Statistics
 
-- 48 pot-level records.
-- 279 leaf-level records.
-- 24 infected pots.
-- 24 non-infected pots.
-- VNIR and SWIR annotation tables are available.
+- Pot-level records: 48
+- Leaf-level records: 279
+- Infected pots: 24
+- Non-infected pots: 24
+- Genotypes: EPO_67 and EPO_68
+- Sensors: VNIR and SWIR
+
+## 4. Important Dataset Understanding
+
+The available CSV files contain annotation information and leaf counts. They do not contain the actual hyperspectral reflectance values.
+
+The original dataset contains hyperspectral image data separately.
+
+Therefore, the current machine learning experiments are exploratory tabular baselines, not validated hyperspectral image classification models.
+
+## 5. Current Data Pipeline
+
+1. Data loading
+2. CSV cleaning
+3. Exploratory data analysis
+4. Missing-value analysis
+5. Dataset integration
+6. Feature investigation
+7. Feature redundancy validation
+8. Baseline model development
+9. Model comparison
+10. Error analysis
+
+## 6. Current Limitations
+
 - Actual hyperspectral image cubes have not yet been loaded.
+- Current sample size is limited to 48 pots.
+- Several features contain missing values.
+- Existing baseline models show weak predictive performance.
+- Further validation is required before making disease-prediction claims.
 
-## 4. Important Limitation
+## 7. Next Development Steps
 
-The current CSV files contain annotation and leaf-count information. They are not hyperspectral reflectance measurements.
-
-Therefore, existing classification experiments are exploratory tabular baselines.
-
-They must not be presented as validated hyperspectral image classification results.
-
-## 5. Next Development Objectives
-
-1. Obtain actual VNIR hyperspectral image data.
-2. Inspect image headers and metadata.
-3. Load hyperspectral image cubes.
+1. Obtain actual VNIR hyperspectral image files.
+2. Inspect `.hyspex` and `.hdr` files.
+3. Load and visualize hyperspectral image cubes.
 4. Extract spectral information.
-5. Develop a suitable preprocessing pipeline.
-6. Train and evaluate hyperspectral classification models.
+5. Develop preprocessing and normalization techniques.
+6. Build and evaluate hyperspectral classification models.
+7. Explore 3D-CNN and Vision Transformer architectures.
