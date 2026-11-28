@@ -1,0 +1,19 @@
+ TerraSpectra – Hyperspectral Crop Disease Forecasting
+
+Project Introduction
+
+TerraSpectra is a machine learning-based project focused on forecasting and identifying crop diseases using hyperspectral imaging technology.
+
+The project aims to analyze hyperspectral data to detect changes in crop health and identify possible disease symptoms at an early stage. By combining data analysis, image processing, and machine learning techniques, TerraSpectra aims to support accurate crop disease prediction and help farmers make better agricultural decisions.
+
+Our goal is to develop a reliable and efficient approach for early crop disease detection, improving crop health monitoring and supporting smart agriculture.
+
+Project Objective
+
+- Analyze hyperspectral crop data.
+- Identify patterns related to crop health and diseases.
+- Explore machine learning techniques for disease forecasting.
+- Support early detection of crop diseases.
+- Contribute to smart and sustainable agriculture.
+To develop a robust machine learning pipeline for early-stage crop disease forecasting using VNIR and SWIR hyperspectral data validation and preprocessing.
+week 1 and 2 write ups doen
